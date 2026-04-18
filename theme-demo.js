@@ -8,9 +8,8 @@ class ThemeDemo extends HTMLElement {
   }
 
   connectedCallback() {
-    this.copyLightDOMToShadow()
-
     this.observer = new MutationObserver(() => {
+      console.log('Mutation observed, updating shadow DOM')
       this.copyLightDOMToShadow()
     })
 
@@ -20,6 +19,8 @@ class ThemeDemo extends HTMLElement {
       attributes: true,
       characterData: true
     })
+
+    this.copyLightDOMToShadow()
   }
 
   disconnectedCallback() {
@@ -27,10 +28,29 @@ class ThemeDemo extends HTMLElement {
   }
 
   copyLightDOMToShadow() {
-    const theme = window.location.pathname.split('/')[1]
+    let theme = window.location.pathname.split('/')[1]
+    let styleTags = []
+    const hasLiveUpdates = !window.location.search.includes('theRealThingAndNotSomeClientRenderedBS')
+    // This is run in HotUpdates preview frame so grab inline styles and 
+    // listen for live updates
+    if (window.parent && hasLiveUpdates) {
+      theme = window.parent.location.pathname.split('/')[1]
+      const ids = [...this.querySelectorAll('[id]')].map(el => el.id)
+      styleTags = [...document.querySelectorAll('style')]
+        .filter(tag => ids.some(id => tag.textContent.includes(id)))
+      // Observe the tags that correspond to elements in this node
+      styleTags.map(el => this.observer.observe(el, {
+        characterData: true,
+        subtree: true,
+        childList: true,
+      }))
+    }
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="https://themes.hot.page/${theme}.css">
+      ${hasLiveUpdates ? '' : `<link rel="stylesheet" href="${window.location.origin}${window.location.pathname}.css">`}
       <style>
+        ${styleTags.map(tag => tag.textContent).join('\n')}
+
         :host {
           all: initial;
           display: block;
