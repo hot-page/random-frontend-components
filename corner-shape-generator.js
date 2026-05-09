@@ -1,383 +1,391 @@
-import { state, html, lightElement } from 'https://esm.sh/@hot-page/fun'
-// import { state, html, lightElement } from 'https://localhost:8090/src/index.js'
+import { state, html, lightElement } from 'https://cdn.jsdelivr.net/npm/@hot-page/fun@0.0.3/dist/index.min.js'
+// import { state, html, lightElement } from 'https://localhost:8090/src/index.ts'
+
 
 const store = {
   corners: state(['superellipse(0)']),
-  firstRadius: state(['100px']), // ,'100px','100px','100px']),
-  secondRadius: state(['100px']), //,'100px','100px','100px']),
+  xRadius: state(['10%']),
+  yRadius: state([]),
 }
 
-function borderRadius() {
-  const firstRadius = store.firstRadius.get().join(' ')
-  const secondRadius = store.secondRadius.get().join(' ')
-  const join = store.secondRadius.get().length > 0 ? ' / ' : ''
-  return `border-radius: ${firstRadius}${join}${secondRadius};`
-}
 
-function calcCSS() {
-  return `
-corner-shape: ${store.corners.get().join(' ')};
-${borderRadius()}
-  `
-}
+lightElement(function CornerShape({ effect }) {
 
-lightElement(`
-  :scope {
-    display: block;
-    width: 100%;
+  effect(() => {
+    const observer = new ResizeObserver(() => {
+      store.corners.set(store.corners.get().slice())
+      store.xRadius.set(store.xRadius.get().slice())
+      store.yRadius.set(store.yRadius.get().slice())
+    })
+    observer.observe(this.querySelector('.shape'))
+    // return () => observer.disconnect()
+  })
+
+  return () => {
+    return html`
+      <div class="shape" style=${generateCSS()}>
+        <radius-control edge="left" side="top" ></radius-control>
+        <radius-control edge="top" side="left"></radius-control>
+        <corner-control corner="top-left"></corner-control>
+        <radius-control edge="right" side="top" axis="x"></radius-control>
+        <radius-control edge="top" side="right"></radius-control>
+        <corner-control corner="top-right"></corner-control>
+        <radius-control edge="bottom" side="right"></radius-control>
+        <radius-control edge="right" side="bottom"></radius-control>
+        <corner-control corner="bottom-right"></corner-control>
+        <radius-control edge="bottom" side="left"></radius-control>
+        <radius-control edge="left" side="bottom"></radius-control>
+        <corner-control corner="bottom-left"></corner-control>
+      </div>
+      <dot-label name="--dot-top-left-x-radius"></dot-label>
+      <dot-label name="--dot-top-left-y-radius"></dot-label>
+      <dot-label name="--dot-top-left-corner"></dot-label>
+      <dot-label name="--dot-top-right-x-radius"></dot-label>
+      <dot-label name="--dot-top-right-y-radius"></dot-label>
+      <dot-label name="--dot-top-right-corner"></dot-label>
+      <dot-label name="--dot-bottom-right-x-radius"></dot-label>
+      <dot-label name="--dot-bottom-right-y-radius"></dot-label>
+      <dot-label name="--dot-bottom-right-corner"></dot-label>
+      <dot-label name="--dot-bottom-left-x-radius"></dot-label>
+      <dot-label name="--dot-bottom-left-y-radius"></dot-label>
+      <dot-label name="--dot-bottom-left-corner"></dot-label>
+    `
+  }
+})
+
+
+// Edge is the side this thing is positioned by
+// Side is the cross axis
+lightElement(function RadiusControl() {
+  const edge = this.getAttribute('edge')
+  const side = this.getAttribute('side')
+  this.style[edge] = '-8px'
+  this.style[side] = '-8px'
+  if (['left','right'].includes(edge)) {
+    this.style.anchorName = `--dot-${side}-${edge}-x-radius`
+  } else {
+    this.style.anchorName = `--dot-${edge}-${side}-y-radius`
+  }
+  // console.log({ edge, side, anchorName: this.style.anchorName })
+
+  let index = 0
+  if ([edge, side].includes('right')) index += 1
+  if ([edge, side].includes('bottom')) {
+    index += 1
+    if ([edge, side].includes('left')) index += 2
   }
 
-  .shape {
-    background: hsl(200 50% 50% / 0.2);
-    width: 100%;
-    aspect-ratio: 1;
-    position: relative;
-  }
+  useDrag(this, (event) => {
+    const rect = this.closest('corner-shape').getBoundingClientRect()
+    const axis = ['top','bottom'].includes(edge) ? 'y' : 'x'
+    const key = axis === 'y' ? 'clientY' : 'clientX'
+    const offsetPx = ['left','top'].includes(edge)
+      ? event[key] - rect[edge]
+      : rect[edge] - event[key]
+    // console.log({ edge, rectEdge: rect[edge], key, eventValue: event[key], offsetPx })
+    const state = axis === 'y' ? store.yRadius : store.xRadius
+    const values = state.get().slice()
+    if (values.length < index) {
+      values[0] ||= store.yRadius.get()[0] || store.xRadius.get()[0]
+      values[1] ||= store.xRadius.get()[1] || values[0]
+      if (index > 2) values[2] ||= values[0]
+    }
+    const referenceValue = values[shorthandIndex(values, index)] || store.xRadius.get()[0]
+    values[index] = formatRadius(offsetPx, rect, axis, referenceValue)
+    state.set(values)
+  })
 
-  .shadow {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    border: 1px solid rgb(0 0 0 / 0.5);
+  return () => {
+    const axis = ['top','bottom'].includes(edge) ? 'y' : 'x'
+    let values = axis === 'y' ? store.yRadius.get() : store.xRadius.get()
+
+    const isActive = index < values.length
+    this.classList.toggle('active', isActive)
+
+    // Y values fallback to X
+    if (!values.length) values = store.xRadius.get()
+
+    const parent = this.closest('corner-shape')
+    if (!parent) return
+    const rect = parent.getBoundingClientRect()
+    // If yRadius was empty and fell back to xRadius values, use 'x' axis for conversion
+    const resolvedAxis = (axis === 'y' && !store.yRadius.get().length) ? 'x' : axis
+    const offset = parseRadius(values[shorthandIndex(values, index)], rect, resolvedAxis)
+    let cssOffset = offset
+    if (['right','bottom'].includes(edge)) cssOffset *= -1
+
+    // console.log({ edge, side, cssOffset })
+    this.style.transform = ['top','bottom'].includes(edge)
+      ? `translateY(${cssOffset}px)`
+      : `translateX(${cssOffset}px)`
   }
-`,
-  function ShapeContainer() {
+})
+
+
+lightElement(function CornerControl() {
+  const corner = this.getAttribute('corner')
+  const [vertical, horizontal] = this.getAttribute('corner').split('-')
+  this.style[vertical] = '-8px'
+  this.style[horizontal] = '-8px'
+  this.style.anchorName = `--dot-${corner}-corner`
+
+  let index = 0
+  if (corner == 'top-right') index = 1
+  else if (corner == 'bottom-right') index = 2
+  else if (corner == 'bottom-left') index = 3
+  // console.log({ corner: this.getAttribute('corner'), index })
+
+  useDrag(this, (event) => {
+    const rect = this.closest('corner-shape').getBoundingClientRect()
+    const xRadiusValues = store.xRadius.get()
+    const xIndex = shorthandIndex(xRadiusValues, index)
+    const xRadius = parseRadius(xRadiusValues[xIndex], rect, 'x')
+    let yRadiusValues = store.yRadius.get()
+    if (yRadiusValues.length == 0) yRadiusValues = xRadiusValues
+    const yIndex = shorthandIndex(yRadiusValues, index)
+    const yRadius = parseRadius(yRadiusValues[yIndex], rect, 'y')
+    const x = horizontal == 'left'
+      ? event.clientX - rect.left 
+      : rect.right - event.clientX
+    const y = vertical == 'top'
+      ? event.clientY - rect.top
+      : rect.bottom - event.clientY
+    const normalizedX = xRadius > 0 ? x / xRadius : 0
+    const normalizedY = yRadius > 0 ? y / yRadius : 0
+    const pos = Math.max(normalizedX, normalizedY)
+    const n = kFromPos(pos, 1)
+    const value = Math.round(n * 100) / 100
+    // console.log(`SETS K radius: ${radius} pos: ${pos} n: ${n}`)
+    const values = store.corners.get().slice()
+    if (values.length < index) {
+      values[1] ||= values[0]
+      values[2] ||= values[0]
+    }
+    values[index] = `superellipse(${value})`
+    store.corners.set(values)
+  })
+
+  return () => {
+    const parent = this.closest('corner-shape')
+    if (!parent) return
+    const rect = parent.getBoundingClientRect()
+    const values = store.corners.get()
+
+    const isActive = index < values.length
+    this.classList.toggle('active', isActive)
+
+    const sIndex = shorthandIndex(values, index)
+    const value = values[sIndex]
+    // console.log({ corner, value, sIndex })
+    const xRadiusValues = store.xRadius.get()
+    const xIndex = shorthandIndex(xRadiusValues, index)
+    const xRadius = parseRadius(xRadiusValues[xIndex], rect, 'x')
+    let yRadiusValues = store.yRadius.get()
+    if (yRadiusValues.length == 0) yRadiusValues = xRadiusValues
+    const yIndex = shorthandIndex(yRadiusValues, index)
+    const yRadius = parseRadius(yRadiusValues[yIndex], rect, 'y')
+    let x
+    let y
+    if (value == 'superellipse(Infinity)') {
+      x = y = 0
+    } else if (value == 'superellipse(-Infinity)') {
+      x = xRadius
+      y = yRadius
+    } else {
+      const k = parseFloat(value.match(/-?\d+.?\d*/)[0])
+      x = posFromK(k, xRadius)
+      y = posFromK(k, yRadius)
+    }
+    if (horizontal == 'right') x *= -1
+    if (vertical == 'bottom') y *= -1
+
+    // console.log({ index, sIndex, xRadius, yRadius, x, y })
+    this.style.translate = `${x}px ${y}px`
+  }
+})
+
+
+lightElement(function DotLabel() {
+  // console.log('dot label init', this.getAttribute('name'))
+  this.style.positionAnchor = this.getAttribute('name')
+  const parts = this.getAttribute('name').slice(6).split('-')
+  this.style.positionArea = `${parts[1]} center`
+  let index = 0
+  if (parts.includes('right')) index += 1
+  if (parts.includes('bottom')) {
+    index += 1
+    if (parts.includes('left')) index += 2
+  }
+  const type = parts[2]
+  // console.log({ name: this.getAttribute('name'), parts, index, type })
+  if (type == 'corner') {
     return () => {
-      const style = calcCSS() + ``
-      return html`
-        <div class="shape" style=${style}>
-          <radius-control corner="top-left" axis="x"></radius-control>
-          <radius-control corner="top-left" axis="y"></radius-control>
-          <super-control corner="top-left"></super-control>
-          <radius-control corner="top-right" axis="x"></radius-control>
-          <radius-control corner="top-right" axis="y"></radius-control>
-          <!-- <super-control corner="top-right"></super-control> -->
-          <radius-control corner="bottom-left" axis="x"></radius-control>
-          <radius-control corner="bottom-left" axis="y"></radius-control>
-          <!-- <super-control corner="bottom-left"></super-control> -->
-          <radius-control corner="bottom-right" axis="x"></radius-control>
-          <radius-control corner="bottom-right" axis="y"></radius-control>
-          <!-- <super-control corner="bottom-right"></super-control> -->
-        </div>
-      `
+      const values = store.corners.get()
+      const isActive = index < values.length
+      this.classList.toggle('active', isActive)
+      return isActive ? values[index] : ''
     }
-  },
-)
-
-const dotCSS = `
-  display: block;
-  position: absolute;
-  top: 0px;
-  left: 0px;
-  width: 15px;
-  aspect-ratio: 1;
-  border-radius: 50%;
-`
-
-lightElement(`
-  :scope {
-    ${dotCSS}
-    background: #aaa;
-    &.active {
-      background: green;
-    }
-  }`,
-
-  function RadiusControl() {
-    const isX = this.getAttribute('axis') != 'y'
-    const isTop = !this.getAttribute('corner').startsWith('bottom')
-    const isLeft = !this.getAttribute('corner').endsWith('right')
-    let index = 0
-    if (!isLeft) index += 1
-    if (!isTop) index += isLeft ? 3 : 1
-
-    let clientAxis = isX ? 'clientX' : 'clientY'
-    let offset
-    let max
-
-    const set = (event) => {
-      let value = event[clientAxis] - offset
-      if (!isLeft && isX) value = offset - event[clientAxis]
-      if (!isTop && !isX) value = offset - event[clientAxis]
-      value = Math.round(Math.min(max, Math.max(value, 0)))
-      value = `${value}px`
-      if (isX) {
-        const values = [...store.firstRadius.get()]
-        if (values.length < index) {
-          values[1] ||= values[0]
-          values[2] ||= values[0]
-        }
-        values[index] = value
-        store.firstRadius.set(values) 
-      } else {
-        const values = [...store.secondRadius.get()]
-        if (values.length < index) {
-          values[1] ||= values[0]
-          values[2] ||= values[0]
-        }
-        values[index] = value
-        store.secondRadius.set(values)
-      }
-    }
-
-    function onPointerDown(event) {
-      const rect = this.closest('.shape').getBoundingClientRect()
-      offset = isX
-        ? (isLeft ? rect.left : rect.right)
-        : (isTop ? rect.top : rect.bottom)
-      max = (isX ? rect.width : rect.height) / 2
-      this.setPointerCapture(event.pointerId)
-      this.addEventListener('pointermove', onPointerMove)
-      this.addEventListener('pointerup', onPointerUp)
-    }
-
-    function onPointerMove(event) {
-      set(event)
-    }
-
-    function onPointerUp(event) {
-      set(event)
-      this.removeEventListener('pointermove', onPointerMove)
-      this.removeEventListener('pointerup', onPointerUp)
-    }
-
-    this.addEventListener('pointerdown', onPointerDown)
+  } else if (type == 'x') {
     return () => {
-      const length = isX
-        ? store.firstRadius.get().length
-        : store.secondRadius.get().length
-      const isActive = index < length
-      let readIndex
-      if (isActive) {
-        readIndex = index
-        this.classList.add('active')
-      } else {
-        this.classList.remove('active')
-        readIndex = !isLeft
-          ? 0 // right side always reads 0
-          : length >= 2
-            ? 1 // reads 1 if it exists
-            : 0 // otherwise 0
-        console.log({ isLeft, isTop, index, readIndex })
-      }
-      const xRadius = parseInt(store.firstRadius.get()[readIndex])
-      const yRadius = parseInt(store.secondRadius.get()[readIndex])
-      let x = isX ? xRadius : 0
-      let y = isX ? 0 : yRadius
-      if (!isLeft || !isTop) {
-        const rect = this.closest('.shape').getBoundingClientRect()
-        if (!isLeft) {
-          if (isX) x = rect.width - x
-          else x = rect.width
-        }
-        if (!isTop) {
-          if (!isX) y = rect.height - y
-          else y = rect.height
-        }
-      }
-      this.style.translate = `calc(-50% + ${x}px) calc(-50% + ${y}px)`
+      const values = store.xRadius.get()
+      const isActive = index < values.length
+      this.classList.toggle('active', isActive)
+      return isActive ? values[index] : ''
     }
-  },
-)
+  } else {
+    return () => {
+      const values = store.yRadius.get()
+      const isActive = index < values.length
+      this.classList.toggle('active', isActive)
+      return isActive ? values[index] : ''
+    }
+  }
+})
+
+
+lightElement(function CornerShapeSelect() {
+  return () => {
+    const corner = store.corners.get()[0]
+    const radius = store.xRadius.get()[0]
+
+    return html`
+      <input
+        value=${radius}
+        @change=${e => store.xRadius.set([e.target.value])}>
+      <select
+        .value=${corner}
+        @change=${e => store.corners.set([e.target.value])}>
+        <button>
+          ${corner}
+        </button>
+        <option value="square">square</option>
+        <option value="round">round</option>
+        <option value="scoop">scoop</option>
+        <option value="bevel">bevel</option>
+        <option value="notch">notch</option>
+        <option value="squircle">squircle</option>
+        <option value="superellipse()">superellipse()</option>
+      </select>
+    `
+  }
+})
+
+
+lightElement(function CSSOutput() {
+  return () => html`<output>${generateCSS()}</output>`
+})
+
+
+lightElement(['shape'], function CornerShapeExample({ shape }) {
+  this.addEventListener('click', () => {
+    const elem = document.querySelector('corner-shape .shape')
+    elem.style = shape.get()
+    elem.style.transition = 'all 300ms ease'
+    elem.addEventListener(
+      'transitionend',
+      () => parseCSS(shape.get()),
+      { once: true })
+  })
+  return () => {
+    this.style = shape.get()
+  }
+})
+
+function generateCSS() {
+  const xRadius = store.xRadius.get().join(' ')
+  const yRadius = store.yRadius.get().join(' ')
+  const join = store.yRadius.get().length > 0 ? ' / ' : ''
+  const borderRadius = `border-radius: ${xRadius}${join}${yRadius};`
+  return `corner-shape: ${store.corners.get().join(' ')};\n${borderRadius}`
+}
+
+function parseCSS(css) {
+  const cornerShapeMatch = css.match(/corner-shape:\s*([^;]+);/)
+  const corners = cornerShapeMatch
+    ? cornerShapeMatch[1].trim().split(/\s+/)
+    : ['superellipse(0)']
+
+  const borderRadiusMatch = css.match(/border-radius:\s*([^;]+);/)
+  let xRadius = ['10%']
+  let yRadius = []
+  if (borderRadiusMatch) {
+    const parts = borderRadiusMatch[1].trim().split('/')
+    xRadius = parts[0].trim().split(/\s+/)
+    yRadius = parts[1] ? parts[1].trim().split(/\s+/) : []
+  }
+
+  store.corners.set(corners)
+  store.xRadius.set(xRadius)
+  store.yRadius.set(yRadius)
+}
+
+
+// Convert a stored radius string (e.g. "100px" or "50%") to pixels.
+// axis: 'x' uses rect.width, 'y' uses rect.height.
+function parseRadius(value, rect, axis) {
+  if (value == null) return 0
+  if (value.endsWith('%')) return parseFloat(value) / 100 * (axis === 'y' ? rect.height : rect.width)
+  return parseFloat(value)
+}
+
+// Convert a pixel offset back to the same unit as the reference value.
+function formatRadius(px, rect, axis, referenceValue) {
+  if (referenceValue != null && referenceValue.endsWith('%')) {
+    const size = axis === 'y' ? rect.height : rect.width
+    return `${Math.round(px / size * 1000) / 10}%`
+  }
+  return `${Math.round(px)}px`
+}
+
+function shorthandIndex(values, index) {
+  if (index < values.length) return index
+  // top-right and bottom-right fall back to top-left
+  if (index < 3) return 0
+  // bottom-left falls back to top-right or top-left
+  if (index == 3) return values.length < 2 ? 0 : 1
+  return 0
+}
+
 
 function kFromPos(pos, r) {
   if (pos <= 0) return Infinity; // square
   if (pos >= r) return -Infinity; // notch
-  return Math.log2(Math.log(0.5) / Math.log(1 - pos / r));
+  // pos > r/2 means concave (dot is near the edge, not the diagonal)
+  const concave = pos > r / 2
+  // For convex: pos = (1 - t) * r  →  t = 1 - pos/r
+  // For concave: pos = t * r        →  t = pos/r
+  const t = concave ? pos / r : 1 - pos / r
+  const absK = Math.log2(-1 / Math.log2(t))
+  return concave ? -absK : absK
 }
+
 
 function posFromK(k, r) {
   if (k === Infinity) return 0;
   if (k === -Infinity) return r;
-  return r * (1 - Math.pow(0.5, 1 / Math.pow(2, k)));
+  // half-corner coordinate from box corner along each axis:
+  // convex: 0.5^(1/2^k) * r, concave: (1 - 0.5^(1/2^|k|)) * r
+  const t = Math.pow(0.5, 1 / Math.pow(2, Math.abs(k)))
+  return k >= 0 ? (1 - t) * r : t * r
 }
 
-let radius = 100
-;[0,25,50,75,100].map(pos => {
-  const n = kFromPos(pos, radius)
-  console.log(`radius: ${radius} pos: ${pos} n: ${n}`)
-})
 
-lightElement(`
-  :scope {
-    ${dotCSS}
-    background: CornFlowerBlue;
-  }`,
-
-  function SuperControl() {
-    let start
-    let radius
-
-    const set = (event) => {
-      const pos = event.clientX - start
-      const n = kFromPos(pos, radius)
-      // console.log(`SETS K radius: ${radius} pos: ${pos} n: ${n}`)
-      store.corners.set([
-        `superellipse(${n})`
-      ])
-    }
-
-    function onPointerDown(event) {
-      const rect = this.closest('.shape').getBoundingClientRect()
-      start = rect.left
-      radius = parseInt(store.firstRadius.get()[0] || 0)
-      this.setPointerCapture(event.pointerId)
-      this.addEventListener('pointermove', onPointerMove)
-      this.addEventListener('pointerup', onPointerUp)
-    }
-
-    function onPointerMove(event) {
-      set(event)
-    }
-
-    function onPointerUp(event) {
-      set(event)
-      this.removeEventListener('pointermove', onPointerMove)
-      this.removeEventListener('pointerup', onPointerUp)
-    }
-
-    this.addEventListener('pointerdown', onPointerDown)
-    return () => {
-      radius = parseInt(store.firstRadius.get()[0] || 0)
-      const corner = store.corners.get()[0]
-      let pos
-      if (corner == 'superellipse(Infinity)') pos = 0
-      else if (corner == 'superellipse(-Infinity)') pos = radius
-      else {
-        const k = parseFloat(corner.match(/-?\d+.?\d*/)[0])
-        pos = posFromK(k, radius)
-        // console.log(`SETS POSITION radius: ${radius} k: ${k} pos: ${pos}`)
-      }
-      this.style.translate = `calc(-50% + ${pos}px) calc(-50% + ${pos}px)`
-    }
-  },
-)
-
-
-lightElement(`
-  select {
-    appearance: base-select;
-    padding: 4px 8px;
-    line-height: 1;
-    border: 1px solid var(--primary-color-900);
-    font-family: inherit;
-    background: var(--background-color);
-    cursor: pointer;
-    align-items: center;
-    border-radius: 0;
-
-    &:hover {
-      background: var(--primary-color-300);
-    }
-
-    &:focus-visible {}
-
-    &::picker(select) {
-      anchor-name: --styled-select;
-      appearance: base-select;
-      top: calc(anchor(bottom) - 1px);
-      border: 1px solid var(--primary-color-900);
-      color: var(--primary-color-900);
-      z-index: 100;
-      transition:
-        opacity 300ms ease-out,
-        transform 200ms ease-out;
-    }
-
-    @starting-style {
-      &::picker(select):popover-open {
-        opacity: 0;
-        transform: scale(1, 0.9);
-      }
-    }
-
-    &::picker(select):popover-open {
-      opacity: 1;
-      transform: none;
-    }
-
-    &::picker-icon {
-      content: url('data:image/svg+xml;chartset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 33 33"><path fill="%235f347a" d="M16.5,24.8L4.2,11.3l2.9-3.1,9.5,10.3,9.5-10.3,2.9,3.1-12.3,13.5Z"/></svg>');
-      position: relative;
-      width: 12px;
-      height: 16px;
-      transform: rotate(90deg);
-      transition: transform 200ms ease-out;
-    }
-
-    &:open::picker-icon {
-      transform: rotate(0);
-    }
+function useDrag(element, onMove) {
+  function onPointerDown(event) {
+    element.setPointerCapture(event.pointerId)
+    element.addEventListener('pointermove', onPointerMove)
+    element.addEventListener('pointerup', onPointerUp)
   }
 
-  option {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 6px 8px;
-    /* background: var(--background-color); */
+  function onPointerMove(event) {
+    onMove(event)
+  }
 
-    img,
-    svg {
-      width: 32px;
-      height: 32px;
-    }
+  function onPointerUp(event) {
+    onMove(event)
+    element.removeEventListener('pointermove', onPointerMove)
+    element.removeEventListener('pointerup', onPointerUp)
+  }
 
-    /* 
-    &:hover {
-      background: var(--primary-color-300);
-    }
-
-    &:focus {
-      background: var(--primary-color-900);
-      color: white;
-    }
-
-    &:checked {
-      font-weight: bold;
-    }
-
-    &::checkmark {
-      display: none;
-    }
-    */
-  }`,
-  function CornerShape() {
-    return () => {
-      const corner = store.corners.get()[0]
-      const radius = store.firstRadius.get()[0]
-
-      return html`
-        <input
-          value=${radius}
-          @change=${e => store.firstRadius.set([e.target.value])}>
-        <select
-          .value=${corner}
-          @change=${e => store.corners.set([e.target.value])}>
-          <button>
-            ${corner}
-          </button>
-          <option value="square">square</option>
-          <option value="round">round</option>
-          <option value="scoop">scoop</option>
-          <option value="bevel">bevel</option>
-          <option value="notch">notch</option>
-          <option value="squircle">squircle</option>
-          <option value="superellipse()">superellipse()</option>
-        </select>
-      `
-    }
-  },
-)
-
-lightElement(
-  function CSSOutput() {
-    return () => html`
-      <output>
-        ${calcCSS()}
-      </output>
-    `
-  },
-)
+  element.addEventListener('pointerdown', onPointerDown)
+}
