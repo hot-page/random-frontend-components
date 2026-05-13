@@ -9,6 +9,7 @@ const themeCSSFile = `https://themes.hot.page/${theme}.css`
 console.log('Creating theme components for', theme)
 
 const colors = state({})
+let hues
 ;(async function () {
   const response = await fetch(themeCSSFile)
   const cssText = await response.text()
@@ -24,20 +25,24 @@ const colors = state({})
     }
   }
   colors.set(collectedColors)
+  hues = Object.entries(colors.get()).filter(([key]) => key.endsWith('hue'))
 })()
-
 
 lightElement(
   ['color'],
   function ThemeSwatch({ color }) {
     return () => {
       const name = `--${color.get()}`
+
       return html`
         <div>
           <p class="selector">${name}</p>
           <div
             class="swatch"
-            style="background-color: ${colors.get()[name]}">
+            style="
+              background-color: ${colors.get()[name]};
+              ${hues.map(([key, value]) => `${key}: ${value};\n`).join('')}
+            ">
           </div>
         </div>
       `
@@ -98,7 +103,9 @@ shadowElement(
       // This is run in HotUpdates preview frame so grab inline styles and
       // listen for live updates
       if (hasLiveUpdates) {
-        const ids = [...this.querySelectorAll('[id]')].map(el => el.id)
+        const ids = [...this.querySelectorAll('[id]')]
+          .map(el => el.id)
+          .filter(id => !!id)
         styleTags = [...document.querySelectorAll('style')]
           .filter(tag => ids.some(id => tag.textContent.includes(id)))
         styleTags.forEach(el => observer.observe(el, {
