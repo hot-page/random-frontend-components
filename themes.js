@@ -4,12 +4,11 @@ import { shadowElement, lightElement, html, state } from 'https://cdn.jsdelivr.n
 let theme = window.location.pathname.split('/')[1]
 const hasLiveUpdates = window.parent && !window.location.search.includes('theRealThingAndNotSomeClientRenderedBS')
 if (hasLiveUpdates) theme = window.parent.location.pathname.split('/')[1]
-const themeCSSFile = `https://themes.hot.page/${theme}.css`
+const themeCSSFile = `/${theme}.css`
 
 console.log('Creating theme components for', theme)
 
 const colors = state({})
-let hues
 ;(async function () {
   const response = await fetch(themeCSSFile)
   const cssText = await response.text()
@@ -25,7 +24,6 @@ let hues
     }
   }
   colors.set(collectedColors)
-  hues = Object.entries(colors.get()).filter(([key]) => key.endsWith('hue'))
 })()
 
 lightElement(
@@ -41,7 +39,7 @@ lightElement(
             class="swatch"
             style="
               background-color: ${colors.get()[name]};
-              ${hues.map(([key, value]) => `${key}: ${value};\n`).join('')}
+              ${Object.entries(colors.get()).map(([key, value]) => `${key}: ${value};\n`).join('')}
             ">
           </div>
         </div>
@@ -137,16 +135,27 @@ shadowElement(
   ${this.innerHTML}
   <script>
     (function() {
-      var id = ${JSON.stringify(iframeId)};
-      var parentOrigin = ${JSON.stringify(parentOrigin)};
+      var id = ${JSON.stringify(iframeId)}
+      var parentOrigin = ${JSON.stringify(parentOrigin)}
       function postHeight() {
-        var height = document.body.scrollHeight;
-        window.parent.postMessage({ type: 'theme-demo-height', id: id, height: height }, parentOrigin || '*');
+        var style = getComputedStyle(document.body)
+        var height = document.body.scrollHeight
+          + parseFloat(style.marginTop)
+          + parseFloat(style.marginBottom)
+        window.parent.postMessage({ type: 'theme-demo-height', id: id, height: height }, parentOrigin || '*')
       }
-      var observer = new ResizeObserver(postHeight);
-      observer.observe(document.body);
-      postHeight();
-    })();
+      var observer = new ResizeObserver(postHeight)
+      observer.observe(document.body)
+      window.addEventListener('load', postHeight)
+      if (document.fonts) document.fonts.ready.then(postHeight)
+      postHeight()
+      document.addEventListener('click', function (event) {
+        if (event.target.closest('a')) event.preventDefault()
+      }, true)
+      document.addEventListener('submit', function (event) {
+        event.preventDefault()
+      }, true)
+    })()
   <\/script>
 </body>
 </html>`
