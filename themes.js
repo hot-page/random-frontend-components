@@ -1,9 +1,12 @@
 import { shadowElement, lightElement, html, state } from 'https://cdn.jsdelivr.net/npm/@hot-page/fun@0.0.1/dist/index.js'
+import './document-thumbnail.js'
 
 
-let theme = window.location.pathname.split('/')[1]
-const hasLiveUpdates = window.parent && !window.location.search.includes('theRealThingAndNotSomeClientRenderedBS')
-if (hasLiveUpdates) theme = window.parent.location.pathname.split('/')[1]
+// In the hot.page preview the document renders inside a cross-origin shell
+// frame, so its own url is meaningless; the injected <base> carries the real one.
+const baseURL = new URL(document.baseURI)
+const theme = baseURL.pathname.split('/')[1]
+const hasLiveUpdates = !baseURL.search.includes('theRealThingAndNotSomeClientRenderedBS')
 const themeCSSFile = `/${theme}.css`
 
 console.log('Creating theme components for', theme)
@@ -114,7 +117,7 @@ shadowElement(
       }
 
       const themeLink = `<link rel="stylesheet" href="${themeCSSFile}">`
-      const pageLink = hasLiveUpdates ? '' : `<link rel="stylesheet" href="${window.location.origin}${window.location.pathname}.css">`
+      const pageLink = hasLiveUpdates ? '' : `<link rel="stylesheet" href="${baseURL.origin}${baseURL.pathname}.css">`
       const inlineStyles = styleTags.map(tag => tag.textContent).join('\n')
       const parentOrigin = window.location.origin === 'null' ? '*' : window.location.origin
 
